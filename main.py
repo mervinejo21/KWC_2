@@ -1,124 +1,145 @@
 import os
 import random
 import time
-import pandas as pd
 
 
-def calculate_local_robotic_satisfaction(frame1, frame2):
+def calculate_local_satisfaction(frame1, frame2, painting_tags):
     """
-    Calculate Local Robotic Satisfaction for two subsequent frameglasses.
+    Calculate Local Robotic Satisfaction between two frameglasses.
     Args:
         frame1 (list): Tags of the first frameglass.
         frame2 (list): Tags of the second frameglass.
+        painting_tags (dict): A mapping of painting IDs to their tags.
     Returns:
-        int: Local Robotic Satisfaction for the two frameglasses.
+        int: Local Robotic Satisfaction score.
     """
-    tags1 = set(frame1)  # Tags of Fi
-    tags2 = set(frame2)  # Tags of Fi+1
+    tags1 = set()
+    tags2 = set()
 
-    common_tags = len(tags1 & tags2)  # Tags common to both frames
-    tags_in_f1_not_in_f2 = len(tags1 - tags2)  # Tags in Fi but not in Fi+1
-    tags_in_f2_not_in_f1 = len(tags2 - tags1)  # Tags in Fi+1 but not in Fi
+    # Collect tags from all paintings in each frameglass
+    for painting in frame1:
+        tags1.update(painting_tags[painting])
 
-    return min(common_tags, tags_in_f1_not_in_f2, tags_in_f2_not_in_f1)
+    for painting in frame2:
+        tags2.update(painting_tags[painting])
+
+    common_tags = len(tags1 & tags2)
+    unique_to_frame1 = len(tags1 - tags2)
+    unique_to_frame2 = len(tags2 - tags1)
+
+    return min(common_tags, unique_to_frame1, unique_to_frame2)
 
 
-def score_function(data):
+def calculate_global_satisfaction(frameglasses, painting_tags):
     """
-    Calculate the total score for a dataset based on Local Robotic Satisfaction.
+    Calculate Global Robotic Satisfaction for an order of frameglasses.
     Args:
-        data (pd.DataFrame): DataFrame containing the tags for each frameglass.
+        frameglasses (list): List of frameglasses.
+        painting_tags (dict): A mapping of painting IDs to their tags.
     Returns:
-        int: Total score for the dataset.
+        int: Global Robotic Satisfaction score.
     """
-    total_score = 0
-    for i in range(len(data) - 1):  # Iterate over pairs of subsequent frames
-        total_score += calculate_local_robotic_satisfaction(data.iloc[i, 2:], data.iloc[i + 1, 2:])
-    return total_score
+    total_satisfaction = 0
+    for i in range(len(frameglasses) - 1):
+        total_satisfaction += calculate_local_satisfaction(
+            frameglasses[i], frameglasses[i + 1], painting_tags
+        )
+    return total_satisfaction
 
 
-def parse_file(input_file, output_folder):
-    try:
-        start_time = time.time()  # Start the timer
+def save_output_file(frameglasses, output_file):
+    """
+    Save the frameglass data in the required format to the output file.
+    Args:
+        frameglasses (list): List of frameglasses.
+        output_file (str): Path to the output file.
+    """
+    with open(output_file, "w") as file:
+        # Write the number of frameglasses
+        file.write(f"{len(frameglasses)}\n")
+        # Write each frameglass
+        for frameglass in frameglasses:
+            file.write(" ".join(map(str, frameglass)) + "\n")
 
-        # Ensure the output folder exists
-        if not os.path.exists(output_folder):
-            os.makedirs(output_folder)
 
-        # Read the input file and skip the first line
-        with open(input_file, "r") as file:
-            lines = file.readlines()
-        data = pd.DataFrame([line.strip().split() for line in lines[1:]])  # Create DataFrame dynamically
+def main(input_file, output_folder):
+    """
+    Main function to parse input, process frameglasses, and generate output files.
+    Args:
+        input_file (str): Path to the input file.
+        output_folder (str): Path to the output folder.
+    """
+    start_time = time.time()
 
-        # Dynamically set column names based on actual number of columns
-        num_columns = data.shape[1]
-        data.columns = ["type", "count"] + [f"tag_{i}" for i in range(2, num_columns)]
+    # Parse input file
+    painting_tags = {}
+    frameglasses = []
+    with open(input_file, "r") as file:
+        lines = file.readlines()
+        num_paintings = int(lines[0].strip())  # First line gives the number of paintings
+        painting_id = 0
 
-        data["count"] = data["count"].astype(int)  # Convert count to integer
+        for line in lines[1:]:
+            parts = line.strip().split()
+            painting_type = parts[0]
+            tags = parts[2:]
 
-        # Output file paths
-        output_files = {
-            'same_order': os.path.join(output_folder, "output_same_order.txt"),
-            'reverse_order': os.path.join(output_folder, "output_reverse_order.txt"),
-            'random_order': os.path.join(output_folder, "output_random_order.txt"),
-            'tag_order': os.path.join(output_folder, "output_tag_order.txt")
-        }
+            painting_tags[painting_id] = tags
+            if painting_type == "P":  # Portrait has two paintings
+                painting_tags[painting_id + 1] = tags
 
-        # Timed operations and scoring
-        times = {}
-        scores = {}
+            if painting_type == "L":
+                frameglasses.append([painting_id])
+                painting_id += 1
+            elif painting_type == "P":
+                frameglasses.append([painting_id, painting_id + 1])
+                painting_id += 2
 
-        # 1. Using the same order
-        t1_start = time.time()
-        data.to_csv(output_files['same_order'], index=False, header=False, sep=" ")
-        t1_end = time.time()
-        times['same_order'] = t1_end - t1_start
-        scores['same_order'] = score_function(data)
+    # Ensure output folder exists
+    os.makedirs(output_folder, exist_ok=True)
 
-        # 2. Using reverse order
-        t2_start = time.time()
-        reversed_data = data.iloc[::-1].reset_index(drop=True)
-        reversed_data.to_csv(output_files['reverse_order'], index=False, header=False, sep=" ")
-        t2_end = time.time()
-        times['reverse_order'] = t2_end - t2_start
-        scores['reverse_order'] = score_function(reversed_data)
+    # Output file paths
+    output_files = {
+        "same_order": os.path.join(output_folder, "output_same_order.txt"),
+        "reverse_order": os.path.join(output_folder, "output_reverse_order.txt"),
+        "random_order": os.path.join(output_folder, "output_random_order.txt"),
+        "tag_order": os.path.join(output_folder, "output_tag_order.txt"),
+    }
 
-        # 3. Using random order
-        t3_start = time.time()
-        random_data = data.sample(frac=1).reset_index(drop=True)
-        random_data.to_csv(output_files['random_order'], index=False, header=False, sep=" ")
-        t3_end = time.time()
-        times['random_order'] = t3_end - t3_start
-        scores['random_order'] = score_function(random_data)
+    # Save outputs for the four conditions
+    save_output_file(frameglasses, output_files["same_order"])
+    save_output_file(frameglasses[::-1], output_files["reverse_order"])
+    save_output_file(random.sample(frameglasses, len(frameglasses)), output_files["random_order"])
+    save_output_file(
+        sorted(frameglasses, key=lambda x: sum(len(painting_tags[p]) for p in x), reverse=True),
+        output_files["tag_order"],
+    )
 
-        # 4. Ordered by the number of tags
-        t4_start = time.time()
-        data["tag_count"] = data.iloc[:, 2:].notnull().sum(axis=1)  # Count non-null tags
-        ordered_by_tags = data.sort_values(by="tag_count", ascending=False).drop(columns=["tag_count"]).reset_index(drop=True)
-        ordered_by_tags.to_csv(output_files['tag_order'], index=False, header=False, sep=" ")
-        t4_end = time.time()
-        times['tag_order'] = t4_end - t4_start
-        scores['tag_order'] = score_function(ordered_by_tags)
+    # Calculate scores
+    scores = {
+        "same_order": calculate_global_satisfaction(frameglasses, painting_tags),
+        "reverse_order": calculate_global_satisfaction(frameglasses[::-1], painting_tags),
+        "random_order": calculate_global_satisfaction(
+            random.sample(frameglasses, len(frameglasses)), painting_tags
+        ),
+        "tag_order": calculate_global_satisfaction(
+            sorted(frameglasses, key=lambda x: sum(len(painting_tags[p]) for p in x), reverse=True),
+            painting_tags,
+        ),
+    }
 
-        total_time = time.time() - start_time
+    # Print execution time and scores
+    print(f"Output files saved in '{output_folder}' successfully!")
+    print(f"Total Execution Time: {time.time() - start_time:.4f} seconds")
 
-        # Print execution times and scores
-        print(f"Output files saved in '{output_folder}' successfully!")
-        print(f"Execution Times:")
-        for key, value in times.items():
-            print(f"  {key.replace('_', ' ').title()}: {value:.4f} seconds")
-        print(f"Total Time: {total_time:.2f} seconds")
+    print("\nScores:")
+    for order, score in scores.items():
+        print(f"  {order.replace('_', ' ').title()}: {score}")
 
-        print(f"\nScores:")
-        for key, value in scores.items():
-            print(f"  {key.replace('_', ' ').title()}: {value}")
-
-    except Exception as e:
-        print(f"Error: {e}")
 
 # File paths
-input_file = r"D:\KWC_2\input\1_binary_landscapes.txt"  # Replace with your file path
-output_folder = "output"  # Specify the output folder name
+input_file = r"D:\KWC_2\input\11_randomizing_paintings.txt"  # Replace with the input file path
+output_folder = "output"  # Replace with the desired output folder path
 
-# Run the parser
-parse_file(input_file, output_folder)
+# Run the program
+main(input_file, output_folder)
