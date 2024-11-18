@@ -2,25 +2,37 @@ import os
 import random
 import time
 
-def score_function(data, condition):
+def calculate_local_robotic_satisfaction(frame1, frame2):
     """
-    Calculate a score for the data based on the given condition.
+    Calculate Local Robotic Satisfaction for two subsequent frameglasses.
+    Args:
+        frame1 (str): Tags of the first frameglass.
+        frame2 (str): Tags of the second frameglass.
+    Returns:
+        int: Local Robotic Satisfaction for the two frameglasses.
+    """
+    tags1 = set(frame1.split()[2:])  # Tags of Fi (skipping "L" and count)
+    tags2 = set(frame2.split()[2:])  # Tags of Fi+1 (skipping "L" and count)
+
+    common_tags = len(tags1 & tags2)  # Tags common to both frames
+    tags_in_f1_not_in_f2 = len(tags1 - tags2)  # Tags in Fi but not in Fi+1
+    tags_in_f2_not_in_f1 = len(tags2 - tags1)  # Tags in Fi+1 but not in Fi
+
+    return min(common_tags, tags_in_f1_not_in_f2, tags_in_f2_not_in_f1)
+
+
+def score_function(data):
+    """
+    Calculate the total score for a dataset based on Local Robotic Satisfaction.
     Args:
         data (list): The list of processed data lines.
-        condition (str): The condition to evaluate ('same', 'reverse', 'random', 'tags').
     Returns:
-        int: A calculated score for the condition.
+        int: Total score for the dataset.
     """
-    if condition == 'same':
-        return len(data)  # Score is the total number of lines
-    elif condition == 'reverse':
-        return sum(len(line.split()) for line in reversed(data))  # Total tags in reverse order
-    elif condition == 'random':
-        return len(set(data))  # Score is the count of unique lines (ensures randomness)
-    elif condition == 'tags':
-        return max(len(line.split()) for line in data)  # Max number of tags in any line
-    else:
-        return 0  # Default for unknown conditions
+    total_score = 0
+    for i in range(len(data) - 1):  # Iterate over pairs of subsequent frames
+        total_score += calculate_local_robotic_satisfaction(data[i], data[i + 1])
+    return total_score
 
 
 def parse_file(input_file, output_folder):
@@ -58,15 +70,16 @@ def parse_file(input_file, output_folder):
             f.write("\n".join(parsed_data))
         t1_end = time.time()
         times['same_order'] = t1_end - t1_start
-        scores['same_order'] = score_function(parsed_data, 'same')
+        scores['same_order'] = score_function(parsed_data)
 
         # 2. Using reverse order
         t2_start = time.time()
+        reversed_data = list(reversed(parsed_data))
         with open(output_files['reverse_order'], "w") as f:
-            f.write("\n".join(reversed(parsed_data)))
+            f.write("\n".join(reversed_data))
         t2_end = time.time()
         times['reverse_order'] = t2_end - t2_start
-        scores['reverse_order'] = score_function(parsed_data, 'reverse')
+        scores['reverse_order'] = score_function(reversed_data)
 
         # 3. Using random order
         t3_start = time.time()
@@ -76,7 +89,7 @@ def parse_file(input_file, output_folder):
             f.write("\n".join(random_order))
         t3_end = time.time()
         times['random_order'] = t3_end - t3_start
-        scores['random_order'] = score_function(random_order, 'random')
+        scores['random_order'] = score_function(random_order)
 
         # 4. Ordered according to the number of tags in the frameglasses
         t4_start = time.time()
@@ -89,7 +102,7 @@ def parse_file(input_file, output_folder):
             f.write("\n".join(ordered_by_tags))
         t4_end = time.time()
         times['tag_order'] = t4_end - t4_start
-        scores['tag_order'] = score_function(ordered_by_tags, 'tags')
+        scores['tag_order'] = score_function(ordered_by_tags)
 
         total_time = time.time() - start_time
 
