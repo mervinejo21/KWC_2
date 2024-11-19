@@ -1,144 +1,151 @@
 import os
-import random
+import time
 from typing import List, Tuple
 
-# Function to read and parse the input file
+
 def read_file(file_path):
+    """
+    Reads and parses the input file.
+    """
     with open(file_path, 'r') as file:
         lines = file.readlines()
-    
-    # Extract the number of frameglasses
-    num_frameglasses = int(lines[0].strip())
-    
-    # Extract the details of the paintings
-    paintings = [line.strip() for line in lines[1:]]
-    
-    return num_frameglasses, paintings
 
-# Function to generate frameglasses
-def generate_frameglasses(paintings):
+    # Extract the number of paintings
+    num_paintings = int(lines[0].strip())
+
+    # Extract painting details
+    paintings = [line.strip().split(maxsplit=2) for line in lines[1:]]
+    for p in paintings:
+        if len(p) < 3:  # Handle missing tags gracefully
+            p.append("")  # Add empty tags
+    return num_paintings, paintings
+
+
+def calculate_tags(frameglass: List[int], paintings: List[List[str]]):
+    """
+    Calculates the union of tags for a given frameglass.
+    """
+    tags = set()
+    for idx in frameglass:
+        tags.update(paintings[idx - 1][2].split())  # Convert 1-based index to 0-based
+    return tags
+
+
+def generate_greedy_order(paintings: List[List[str]]):
+    """
+    Generates frameglasses using a greedy heuristic to maximize satisfaction score.
+    """
     frameglasses = []
-    used_indexes = set()
-    portraits = []
-    landscapes = []
 
-    for i, painting in enumerate(paintings):
-        if i in used_indexes:
-            continue  # Skip already used indexes
-        
-        parts = painting.split()
-        painting_type = parts[0]
-        tags = parts[2:]
-        
-        if painting_type == "L":  # Landscape painting
-            landscapes.append((i, tags))  # Store index and tags
-            used_indexes.add(i)
-        elif painting_type == "P":  # Portrait painting
-            portraits.append((i, tags))  # Store index and tags
-            used_indexes.add(i)
-    
-    # Add landscapes first
-    for landscape in landscapes:
-        frameglasses.append(landscape)
-    
-    # Pair up portraits
-    for j in range(0, len(portraits) - 1, 2):
-        pair = (portraits[j][0], portraits[j][1] + portraits[j + 1][1])  # Merge tags
-        frameglasses.append(pair)
-    
+    # Split paintings into landscapes and portraits
+    landscapes = [i + 1 for i, p in enumerate(paintings) if p[0] == "L"]
+    portraits = [i + 1 for i, p in enumerate(paintings) if p[0] == "P"]
+
+    # Create initial frameglasses
+    all_frameglasses = [[pid] for pid in landscapes]  # Single landscapes
+    all_frameglasses += [portraits[i:i+2] for i in range(0, len(portraits), 2)]  # Pairs of portraits
+
+    if not all_frameglasses:
+        return []
+
+    # Initialize with the first frameglass
+    current = all_frameglasses.pop(0)
+    frameglasses.append(current)
+
+    while all_frameglasses:
+        best_score = -1
+        best_frame = None
+
+        # Find the best next frameglass
+        for candidate in all_frameglasses:
+            tags_current = calculate_tags(current, paintings)
+            tags_candidate = calculate_tags(candidate, paintings)
+
+            common = len(tags_current & tags_candidate)
+            only_in_current = len(tags_current - tags_candidate)
+            only_in_candidate = len(tags_candidate - tags_current)
+
+            local_score = min(common, only_in_current, only_in_candidate)
+            if local_score > best_score:
+                best_score = local_score
+                best_frame = candidate
+
+        # Update the sequence
+        current = best_frame
+        frameglasses.append(current)
+        all_frameglasses.remove(current)
+
     return frameglasses
 
-# Function to calculate local satisfaction
-def calculate_local_satisfaction(tags_current: set, tags_next: set) -> int:
-    common_tags = len(tags_current & tags_next)
-    tags_in_current_not_in_next = len(tags_current - tags_next)
-    tags_in_next_not_in_current = len(tags_next - tags_current)
-    return min(common_tags, tags_in_current_not_in_next, tags_in_next_not_in_current)
 
-# Function to calculate the global satisfaction
-def calculate_global_satisfaction(frameglasses: List[Tuple[int, List[str]]]) -> int:
-    total_score = 0
-    
-    for i in range(len(frameglasses) - 1):
-        # Tags for the current and next frameglass
-        tags_current = set(frameglasses[i][1])
-        tags_next = set(frameglasses[i + 1][1])
-        
-        # Local satisfaction
-        local_satisfaction = calculate_local_satisfaction(tags_current, tags_next)
-        total_score += local_satisfaction
-    
-    return total_score
-
-# Function to optimize the sequence of frameglasses
-def optimize_frameglass_sequence(frameglasses: List[Tuple[int, List[str]]]) -> List[Tuple[int, List[str]]]:
-    optimized_sequence = []
-    remaining_frameglasses = frameglasses[:]
-    
-    # Start with any frameglass
-    current_frameglass = remaining_frameglasses.pop(0)
-    optimized_sequence.append(current_frameglass)
-    
-    while remaining_frameglasses:
-        best_next_frameglass = None
-        best_score = -1
-        
-        # Find the next frameglass that maximizes local satisfaction
-        for next_frameglass in remaining_frameglasses:
-            tags_current = set(current_frameglass[1])
-            tags_next = set(next_frameglass[1])
-            local_satisfaction = calculate_local_satisfaction(tags_current, tags_next)
-            
-            if local_satisfaction > best_score:
-                best_score = local_satisfaction
-                best_next_frameglass = next_frameglass
-        
-        # Add the best frameglass to the sequence
-        optimized_sequence.append(best_next_frameglass)
-        remaining_frameglasses.remove(best_next_frameglass)
-        current_frameglass = best_next_frameglass
-    
-    return optimized_sequence
-
-# Function to write the output file
 def write_output_file(folder_path, file_name, frameglasses):
+    """
+    Writes the frameglasses to an output file in the specified format.
+    """
     os.makedirs(folder_path, exist_ok=True)
     file_path = os.path.join(folder_path, file_name)
-    
+
     with open(file_path, 'w') as file:
-        # Write the number of frameglasses
-        file.write(f"{len(frameglasses)}\n")
-        
-        # Write the details of each frameglass
+        file.write(f"{len(frameglasses)}\n")  # Write number of frameglasses
         for frameglass in frameglasses:
-            file.write(f"{frameglass[0]}\n")
-    
+            file.write(" ".join(map(str, frameglass)) + "\n")
+
     print(f"Output written to: {file_path}")
 
-# Main function to process the data
+
+def scoring_function(frameglasses: List[List[int]], paintings: List[List[str]]):
+    """
+    Computes the global satisfaction score for a sequence of frameglasses.
+    """
+    global_score = 0
+
+    for i in range(len(frameglasses) - 1):
+        tags_fi = calculate_tags(frameglasses[i], paintings)
+        tags_fi_plus_1 = calculate_tags(frameglasses[i + 1], paintings)
+
+        common_tags = len(tags_fi & tags_fi_plus_1)
+        fi_not_in_fi_plus_1 = len(tags_fi - tags_fi_plus_1)
+        fi_plus_1_not_in_fi = len(tags_fi_plus_1 - tags_fi)
+
+        local_score = min(common_tags, fi_not_in_fi_plus_1, fi_plus_1_not_in_fi)
+        global_score += local_score
+
+    return global_score
+
+
+def evaluate_execution_time(paintings: List[List[str]]):
+    """
+    Measures execution time of the greedy heuristic.
+    """
+    start_time = time.time()
+    generate_greedy_order(paintings)
+    end_time = time.time()
+    return end_time - start_time
+
+
 def process_data(input_file, output_folder):
-    # Read and parse the file
-    num_frameglasses, paintings = read_file(input_file)
-    
-    # Generate frameglasses
-    frameglasses = generate_frameglasses(paintings)
-    
-    # Calculate initial score
-    initial_score = calculate_global_satisfaction(frameglasses)
-    print(f"Initial Global Satisfaction Score: {initial_score}")
-    
-    # Optimize the sequence
-    optimized_frameglasses = optimize_frameglass_sequence(frameglasses)
-    
-    # Calculate optimized score
-    optimized_score = calculate_global_satisfaction(optimized_frameglasses)
-    print(f"Optimized Global Satisfaction Score: {optimized_score}")
-    
+    """
+    Processes the input file and generates the optimized output.
+    """
+    num_paintings, paintings = read_file(input_file)
+
+    # Generate frameglasses using a greedy heuristic
+    frameglasses = generate_greedy_order(paintings)
+
     # Write the optimized output
-    write_output_file(output_folder, "optimized_output.txt", optimized_frameglasses)
+    write_output_file(output_folder, "optimized_output.txt", frameglasses)
+
+    # Evaluate execution time
+    execution_time = evaluate_execution_time(paintings)
+    print(f"\nExecution time: {execution_time:.6f} seconds")
+
+    # Calculate the global satisfaction score
+    score = scoring_function(frameglasses, paintings)
+    print(f"\nGlobal Satisfaction Score: {score}")
+
 
 # Execute the script
 if __name__ == "__main__":
-    input_file_path = r'D:\KWC_2\input\1_binary_landscapes.txt'
-    output_folder = 'output'
+    input_file_path = r"D:\KWC_2\input\1_binary_landscapes.txt"  # Update with the correct input file path
+    output_folder = "output"  # Output folder
     process_data(input_file_path, output_folder)
